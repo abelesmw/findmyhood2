@@ -15,11 +15,7 @@ struct HistoryView: View {
     var body: some View {
         List {
             ForEach(Array(groupedLocations.keys.sorted().enumerated()), id: \.element) { index, city in
-                Section(header: Text(city)
-                            .font(.custom("SFProRounded-Bold", size: 26))
-                            .padding(.top, index == 0 ? 20 : 2) // Add padding only above the first title
-                            .foregroundColor(.blue)
-                            .shadow(color: .black, radius: 5, x: 5, y: 5)) {
+                Section(header: headerView(for: city, index: index)) {
                     ForEach(groupedLocations[city]!.keys.sorted(), id: \.self) { neighborhood in
                         DisclosureGroup {
                             ForEach(groupedLocations[city]![neighborhood]!.sorted(by: { $0.date > $1.date })) { entry in
@@ -84,6 +80,17 @@ struct HistoryView: View {
                         neighborhoodToDelete = nil
                     }
                 )
+            } else if let city = cityToDelete {
+                return Alert(
+                    title: Text("Delete All Entries"),
+                    message: Text("Are you sure you want to delete all entries for \(city)?"),
+                    primaryButton: .destructive(Text("Delete")) {
+                        deleteAllEntries(for: city)
+                    },
+                    secondaryButton: .cancel {
+                        cityToDelete = nil
+                    }
+                )
             } else {
                 return Alert(
                     title: Text("Erase All History"),
@@ -98,6 +105,19 @@ struct HistoryView: View {
         .preferredColorScheme(.dark)
     }
 
+    private func headerView(for city: String, index: Int) -> some View {
+        Text(city)
+            .font(.custom("SFProRounded-Bold", size: 26))
+            .padding(.top, index == 0 ? 20 : 2) // Add padding only above the first title
+            .foregroundColor(.blue)
+            .shadow(color: .black, radius: 5, x: 5, y: 5)
+            .contentShape(Rectangle()) // Ensures the whole header is tappable
+            .onLongPressGesture {
+                cityToDelete = city
+                showAlert = true
+            }
+    }
+
     private func deleteEntry(_ entry: LocationEntry) {
         locations.removeAll { $0.id == entry.id }
         LocationStorage.save(locations)
@@ -108,6 +128,12 @@ struct HistoryView: View {
         LocationStorage.save(locations)
         cityToDelete = nil
         neighborhoodToDelete = nil
+    }
+
+    private func deleteAllEntries(for city: String) {
+        locations.removeAll { $0.city == city }
+        LocationStorage.save(locations)
+        cityToDelete = nil
     }
 
     private func eraseAllHistory() {
