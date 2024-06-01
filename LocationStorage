@@ -1,0 +1,40 @@
+import Foundation
+
+struct LocationStorage {
+    static private let key = "locations"
+
+    static func load() -> [LocationEntry] {
+        guard let data = UserDefaults.standard.data(forKey: key) else {
+            return []
+        }
+        var locations = (try? JSONDecoder().decode([LocationEntry].self, from: data)) ?? []
+        // Backward compatibility: Ensure each entry has a city and neighborhood value
+        locations = locations.map { location in
+            LocationEntry(
+                id: location.id,
+                city: location.city.isEmpty ? "Unknown City" : location.city,
+                neighborhood: location.neighborhood.isEmpty ? "Unknown Neighborhood" : location.neighborhood,
+                date: location.date
+            )
+        }
+        return locations
+    }
+
+    static func save(_ locations: [LocationEntry]) {
+        guard let data = try? JSONEncoder().encode(locations) else {
+            return
+        }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+    
+    static func addLocation(_ location: LocationEntry) {
+        var locations = load()
+        // Check if the latest entry is the same neighborhood and within a short time frame (e.g., 1 minute)
+        if let lastLocation = locations.last, lastLocation.neighborhood == location.neighborhood,
+           Calendar.current.isDate(location.date, equalTo: lastLocation.date, toGranularity: .minute) {
+            return
+        }
+        locations.append(location)
+        save(locations)
+    }
+}
