@@ -4,6 +4,7 @@ struct HistoryView: View {
     @Binding var locations: [LocationEntry]
     @State private var showAlert = false
     @State private var cityToDelete: String? = nil
+    @State private var neighborhoodToDelete: String? = nil
     var onEraseAll: (() -> Void)?
 
     var groupedLocations: [String: [String: [LocationEntry]]] {
@@ -17,7 +18,6 @@ struct HistoryView: View {
                 Section(header: Text(city)
                             .font(.custom("SFProRounded-Bold", size: 26))
                             .padding(.top, index == 0 ? 20 : 2) // Add padding only above the first title
-                           // .padding(.bottom, 2) // Standard bottom padding
                             .foregroundColor(.blue)
                             .shadow(color: .black, radius: 5, x: 5, y: 5)) {
                     ForEach(groupedLocations[city]!.keys.sorted(), id: \.self) { neighborhood in
@@ -38,13 +38,13 @@ struct HistoryView: View {
                         } label: {
                             Text("\(neighborhood) (\(groupedLocations[city]![neighborhood]!.count) visits)")
                                 .font(.custom("SFProRounded-Bold", size: 19))
-                                //.padding(.vertical, 10) // Adjust this padding for subsequent titles
                                 .background(Color.clear)
                         }
                         .background(Color.clear)
                         .contextMenu {
                             Button(role: .destructive) {
                                 cityToDelete = city
+                                neighborhoodToDelete = neighborhood
                                 showAlert = true
                             } label: {
                                 Label("Delete All \(neighborhood) Entries", systemImage: "trash")
@@ -72,15 +72,16 @@ struct HistoryView: View {
                 .padding()
         })
         .alert(isPresented: $showAlert) {
-            if let city = cityToDelete {
+            if let city = cityToDelete, let neighborhood = neighborhoodToDelete {
                 return Alert(
                     title: Text("Delete All Entries"),
-                    message: Text("Are you sure you want to delete all entries for \(city)?"),
+                    message: Text("Are you sure you want to delete all entries for \(neighborhood) in \(city)?"),
                     primaryButton: .destructive(Text("Delete")) {
-                        deleteAllEntries(for: city)
+                        deleteAllEntries(for: city, in: neighborhood)
                     },
                     secondaryButton: .cancel {
                         cityToDelete = nil
+                        neighborhoodToDelete = nil
                     }
                 )
             } else {
@@ -102,10 +103,11 @@ struct HistoryView: View {
         LocationStorage.save(locations)
     }
 
-    private func deleteAllEntries(for city: String) {
-        locations.removeAll { $0.city == city }
+    private func deleteAllEntries(for city: String, in neighborhood: String) {
+        locations.removeAll { $0.city == city && $0.neighborhood == neighborhood }
         LocationStorage.save(locations)
         cityToDelete = nil
+        neighborhoodToDelete = nil
     }
 
     private func eraseAllHistory() {
