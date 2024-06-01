@@ -1,0 +1,248 @@
+import SwiftUI
+import CoreLocation
+import os.signpost
+
+struct ContentView: View {
+    @EnvironmentObject private var locationManager: LocationManager
+    @State private var neighborhoodInfo: String = ""
+    @State private var isLoading: Bool = false
+    @State private var isFirstClick: Bool = true
+    @State private var locations: [LocationEntry] = LocationStorage.load()
+    private let log = OSLog(subsystem: Bundle.main.bundleIdentifier!, category: "ContentView")
+    
+    var body: some View {
+        NavigationView {
+            VStack {
+                Spacer()
+                    .frame(height: 120)
+                if isLoading {
+                    LoadingView()
+                } else {
+                    Button(action: {
+                        startLocationRequest()
+                    }) {
+                        Text("Find My Hood")
+                            .foregroundColor(.white)
+                            .frame(width: 295, height: 295)
+                            .background(Color.blue)
+                            .shadow(color: .brown, radius: 0.5, x: 0.5, y: 0.5)
+                            .clipShape(Circle())
+                            .font(.custom("SFProRounded-Bold", size: 39))
+                    }
+                    .overlay(
+                        Circle()
+                            .stroke(Color(red: 9 / 255.0, green: 80 / 255.0, blue: 153 / 255.0), lineWidth: 5)
+                    )
+                    .padding(.bottom, 60)
+                }
+                
+                if !neighborhoodInfo.isEmpty && !isLoading {
+                    Text("\(neighborhoodInfo)")
+                        .font(.custom("SFProRounded-Bold", size: 33))
+                        .shadow(color: .black, radius: 4, x: 4, y: 4)
+                        .multilineTextAlignment(.center)
+                        .padding()
+                }
+                
+                Spacer()
+            }.background(
+                Image("AppBackground")
+                    .resizable()
+                    .scaledToFill()
+                    .opacity(0.22)
+                    .edgesIgnoringSafeArea(.all))
+            .navigationBarItems(trailing: NavigationLink(destination: HistoryView(locations: $locations, onEraseAll: clearNeighborhoodInfo)) {
+                Image(systemName: "clock")
+                    .imageScale(.large)
+                    .foregroundColor(.blue)
+                    .padding()
+            })
+            .onAppear {
+                performDummyNetworkRequest()
+                updateLastKnownLocation()
+            }
+            .onReceive(locationManager.$location) { location in
+                if let location = location {
+                    fetchNeighborhood(for: location)
+                }
+            }
+            .onReceive(locationManager.$error) { error in
+                if error != nil {
+                    isLoading = false
+                    neighborhoodInfo = "Failed to get location. Please try again."
+                }
+            }
+        }
+    }
+    
+    private func performDummyNetworkRequest() {
+        let url = URL(string: "https://example.com/dummy")!
+        let task = URLSession.shared.dataTask(with: url) { _, _, _ in
+            // No need to handle response
+        }
+        task.resume()
+    }
+    
+    private func runSmoothAnimationFirstTime() {
+        isLoading = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            self.isFirstClick = false
+            self.startLocationRequest()
+        }
+    }
+    
+    private func startLocationRequest() {
+        isLoading = true
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
+            locationManager.requestLocation()
+        }
+    }
+    
+    private func fetchNeighborhood(for coordinate: CLLocationCoordinate2D) {
+        let apiKey = "MY_API_KEY"
+        let urlString = "https://maps.googleapis.com/maps/api/geocode/json?latlng=\(coordinate.latitude),\(coordinate.longitude)&key=\(apiKey)"
+        
+        guard let url = URL(string: urlString) else {
+            self.isLoading = false
+            self.neighborhoodInfo = "Invalid URL."
+            return
+        }
+
+        let signpostID = OSSignpostID(log: log)
+        os_signpost(.begin, log: log, name: "Network Request", signpostID: signpostID)
+        //print("Network Request started")
+        
+        let session = URLSession(configuration: .default)
+        
+        session.dataTask(with: url) { data, response, error in
+            guard let data = data, error == nil else {
+                DispatchQueue.main.async {
+                    os_signpost(.end, log: log, name: "Network Request", signpostID: signpostID)
+                    //print("Network Request ended")
+                    self.isLoading = false
+                    self.neighborhoodInfo = "Failed to find neighborhood: \(error?.localizedDescription ?? "Unknown error")"
+                }
+                return
+            }
+            
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                   let results = json["results"] as? [[String: Any]] {
+                    DispatchQueue.main.async {
+                        os_signpost(.end, log: log, name: "Network Request", signpostID: signpostID)
+                        //print("Network Request ended")
+                        self.isLoading = false
+                        
+                        if results.isEmpty {
+                            self.neighborhoodInfo = "No neighborhood found."
+                            //print("No neighborhood found")
+                        } else {
+                            let locationData = self.extractLocationInfo(from: results)
+                            self.neighborhoodInfo = locationData.neighborhood
+                            
+                            let locationEntry = LocationEntry(city: locationData.city, neighborhood: locationData.neighborhood, date: Date())
+                            LocationStorage.addLocation(locationEntry)
+                            self.locations = LocationStorage.load()
+                            self.updateLastKnownLocation()
+                        }
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.neighborhoodInfo = "Error parsing response."
+                    //print("Error parsing response: \(error.localizedDescription)")
+                }
+            }
+        }.resume()
+    }
+    
+    private func extractLocationInfo(from results: [[String: Any]]) -> (city: String, neighborhood: String) {
+        var city: String = "Unknown City"
+        var neighborhood: String = "Unknown Neighborhood"
+        var fallbackCity: String = "Unknown City"
+        
+        for result in results {
+            if let addressComponents = result["address_components"] as? [[String: Any]] {
+                for component in addressComponents {
+                    if let types = component["types"] as? [String], let longName = component["long_name"] as? String {
+                        //print("Component: \(component), Types: \(types), Long Name: \(longName)")
+                        
+                        if types.contains("sublocality") || types.contains("sublocality_level_1") {
+                            city = longName
+                            //print("Identified Sublocality (Preferred City): \(city)")
+                        } else if types.contains("locality") {
+                            if fallbackCity == "Unknown City" {
+                                fallbackCity = longName
+                                //print("Identified Locality (Fallback City): \(fallbackCity)")
+                            }
+                            if city == "Unknown City" {
+                                city = longName
+                                //print("Identified Locality (City): \(city)")
+                            }
+                        } else if types.contains("neighborhood") {
+                            neighborhood = longName
+                            //print("Identified Neighborhood: \(neighborhood)")
+                        } else if types.contains("administrative_area_level_1") {
+                            //print("Identified State: \(longName)")
+                        }
+                    }
+                }
+            }
+        }
+
+        if neighborhood == "Unknown Neighborhood" {
+            neighborhood = fallbackCity
+        }
+        
+        return (city == "Unknown City" ? fallbackCity : city, neighborhood)
+    }
+    
+    private func updateLastKnownLocation() {
+        if let lastLocation = locations.last {
+            let timeDifference = Date().timeIntervalSince(lastLocation.date)
+            let timeString = timeAgoString(from: timeDifference)
+            if timeString.isEmpty {
+                neighborhoodInfo = "You are in \(lastLocation.neighborhood)"
+            } else {
+                neighborhoodInfo = "You were in \(lastLocation.neighborhood) \(timeString)"
+            }
+        }
+    }
+    
+    private func clearNeighborhoodInfo() {
+        neighborhoodInfo = ""
+    }
+    
+    private func timeAgoString(from timeInterval: TimeInterval) -> String {
+        let minutes = Int(timeInterval / 60)
+        let hours = Int(timeInterval / 3600)
+        
+        if hours > 0 {
+            let hoursString = hours == 1 ? "hour" : "hours"
+            let minutesString = (minutes % 60) == 1 ? "minute" : "minutes"
+            return "\(hours) \(hoursString) and \(minutes % 60) \(minutesString) ago"
+        } else if minutes > 0 {
+            let minutesString = minutes == 1 ? "minute" : "minutes"
+            return "\(minutes) \(minutesString) ago"
+        } else {
+            return ""
+        }
+    }
+}
+
+struct LoadingView: View {
+    @State private var isAnimating = false
+
+    var body: some View {
+        Circle()
+            .trim(from: 0.0, to: 0.8)
+            .stroke(Color.blue, lineWidth: 10)
+            .frame(width: 275, height: 275)
+            .rotationEffect(Angle(degrees: isAnimating ? 360 : 0))
+            .onAppear {
+                withAnimation(Animation.linear(duration: 1.0).repeatForever(autoreverses: false)) {
+                    isAnimating = true
+                }
+            }
+    }
+}
