@@ -1,0 +1,51 @@
+import Foundation
+import CoreLocation
+import os.signpost
+
+class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    private let log = OSLog(subsystem: Bundle.main.bundleIdentifier!, category: "LocationManager")
+    
+    @Published var location: CLLocationCoordinate2D?
+    @Published var error: Error?
+    
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+    }
+    
+    func requestWhenInUseAuthorization() {
+        manager.requestWhenInUseAuthorization()
+    }
+    
+    func requestLocation() {
+        let signpostID = OSSignpostID(log: log)
+        os_signpost(.begin, log: log, name: "Request Location", signpostID: signpostID)
+        print("Request Location started")
+        
+        manager.requestLocation()
+        
+        os_signpost(.end, log: log, name: "Request Location", signpostID: signpostID)
+        print("Request Location ended")
+    }
+    
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        let signpostID = OSSignpostID(log: log)
+        os_signpost(.begin, log: log, name: "Location Update", signpostID: signpostID)
+        print("Location Update started")
+        
+        if let location = locations.first {
+            self.location = location.coordinate
+            manager.stopUpdatingLocation() // Stop updating to save battery and resources
+        }
+        
+        os_signpost(.end, log: log, name: "Location Update", signpostID: signpostID)
+        print("Location Update ended")
+    }
+    
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        self.error = error
+        print("Location Update failed: \(error.localizedDescription)")
+    }
+}
