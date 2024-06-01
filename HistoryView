@@ -1,0 +1,123 @@
+import SwiftUI
+
+struct HistoryView: View {
+    @Binding var locations: [LocationEntry]
+    @State private var showAlert = false
+    @State private var cityToDelete: String? = nil
+    var onEraseAll: (() -> Void)?
+
+    var groupedLocations: [String: [String: [LocationEntry]]] {
+        let groupedByCity = Dictionary(grouping: locations, by: { $0.city })
+        return groupedByCity.mapValues { Dictionary(grouping: $0, by: { $0.neighborhood }) }
+    }
+
+    var body: some View {
+        List {
+            ForEach(Array(groupedLocations.keys.sorted().enumerated()), id: \.element) { index, city in
+                Section(header: Text(city)
+                            .font(.custom("SFProRounded-Bold", size: 26))
+                            .padding(.top, index == 0 ? 20 : 2) // Add padding only above the first title
+                           // .padding(.bottom, 2) // Standard bottom padding
+                            .foregroundColor(.blue)
+                            .shadow(color: .black, radius: 5, x: 5, y: 5)) {
+                    ForEach(groupedLocations[city]!.keys.sorted(), id: \.self) { neighborhood in
+                        DisclosureGroup {
+                            ForEach(groupedLocations[city]![neighborhood]!.sorted(by: { $0.date > $1.date })) { entry in
+                                Text("\(entry.date, formatter: Self.dateFormatter)")
+                                    .font(.custom("SFProRounded-Regular", size: 16))
+                                    .background(Color.clear)
+                                    .foregroundColor(.blue).opacity(0.8)
+                                    .swipeActions {
+                                        Button(role: .destructive) {
+                                            deleteEntry(entry)
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
+                            }
+                        } label: {
+                            Text("\(neighborhood) (\(groupedLocations[city]![neighborhood]!.count) visits)")
+                                .font(.custom("SFProRounded-Bold", size: 19))
+                                //.padding(.vertical, 10) // Adjust this padding for subsequent titles
+                                .background(Color.clear)
+                        }
+                        .background(Color.clear)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                cityToDelete = city
+                                showAlert = true
+                            } label: {
+                                Label("Delete All \(neighborhood) Entries", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .background(
+            Image("AppBackground")
+                .resizable()
+                .scaledToFill()
+                .edgesIgnoringSafeArea(.all)
+                .opacity(0.22)
+        )
+        .scrollContentBackground(.hidden)
+        .navigationTitle("Hood History")
+        .navigationBarItems(trailing: Button(action: {
+            showAlert = true
+        }) {
+            Image(systemName: "trash")
+                .imageScale(.large)
+                .foregroundColor(.blue)
+                .padding()
+        })
+        .alert(isPresented: $showAlert) {
+            if let city = cityToDelete {
+                return Alert(
+                    title: Text("Delete All Entries"),
+                    message: Text("Are you sure you want to delete all entries for \(city)?"),
+                    primaryButton: .destructive(Text("Delete")) {
+                        deleteAllEntries(for: city)
+                    },
+                    secondaryButton: .cancel {
+                        cityToDelete = nil
+                    }
+                )
+            } else {
+                return Alert(
+                    title: Text("Erase All History"),
+                    message: Text("Are you sure you want to erase all of your history?"),
+                    primaryButton: .destructive(Text("Erase")) {
+                        eraseAllHistory()
+                    },
+                    secondaryButton: .cancel()
+                )
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private func deleteEntry(_ entry: LocationEntry) {
+        locations.removeAll { $0.id == entry.id }
+        LocationStorage.save(locations)
+    }
+
+    private func deleteAllEntries(for city: String) {
+        locations.removeAll { $0.city == city }
+        LocationStorage.save(locations)
+        cityToDelete = nil
+    }
+
+    private func eraseAllHistory() {
+        locations.removeAll()
+        LocationStorage.save(locations)
+        onEraseAll?()
+    }
+
+    static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+}
