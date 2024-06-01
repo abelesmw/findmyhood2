@@ -7,8 +7,12 @@ struct HistoryView: View {
     @State private var neighborhoodToDelete: String? = nil
     var onEraseAll: (() -> Void)?
 
+    var filteredLocations: [LocationEntry] {
+        locations.filter { !["Unknown Neighborhood", "an Unknown Neighborhood","an unknown neighborhood", "Failed to get location. Please try again."].contains($0.neighborhood) }
+    }
+
     var groupedLocations: [String: [String: [LocationEntry]]] {
-        let groupedByCity = Dictionary(grouping: locations, by: { $0.city })
+        let groupedByCity = Dictionary(grouping: filteredLocations, by: { $0.city })
         return groupedByCity.mapValues { Dictionary(grouping: $0, by: { $0.neighborhood }) }
     }
 
@@ -71,7 +75,7 @@ struct HistoryView: View {
             if let city = cityToDelete, let neighborhood = neighborhoodToDelete {
                 return Alert(
                     title: Text("Delete All Entries"),
-                    message: Text("Are you sure you want to delete all entries for \(neighborhood) in \(city)?"),
+                    message: Text("Are you sure you want to delete all entries for \(neighborhood)"),
                     primaryButton: .destructive(Text("Delete")) {
                         deleteAllEntries(for: city, in: neighborhood)
                     },
