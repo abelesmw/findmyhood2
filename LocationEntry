@@ -1,0 +1,8 @@
+import Foundation
+
+struct LocationEntry: Identifiable, Codable {
+    var id = UUID()
+    let city: String
+    let neighborhood: String
+    let date: Date
+}
