@@ -110,7 +110,7 @@ struct ContentView: View {
 
         let signpostID = OSSignpostID(log: log)
         os_signpost(.begin, log: log, name: "Network Request", signpostID: signpostID)
-        //print("Network Request started")
+        print("Network Request started")
         
         let session = URLSession(configuration: .default)
         
@@ -118,7 +118,7 @@ struct ContentView: View {
             guard let data = data, error == nil else {
                 DispatchQueue.main.async {
                     os_signpost(.end, log: log, name: "Network Request", signpostID: signpostID)
-                    //print("Network Request ended")
+                    print("Network Request ended")
                     self.isLoading = false
                     self.neighborhoodInfo = "Failed to find neighborhood: \(error?.localizedDescription ?? "Unknown error")"
                 }
@@ -130,12 +130,12 @@ struct ContentView: View {
                    let results = json["results"] as? [[String: Any]] {
                     DispatchQueue.main.async {
                         os_signpost(.end, log: log, name: "Network Request", signpostID: signpostID)
-                        //print("Network Request ended")
+                        print("Network Request ended")
                         self.isLoading = false
                         
                         if results.isEmpty {
                             self.neighborhoodInfo = "No neighborhood found."
-                            //print("No neighborhood found")
+                            print("No neighborhood found")
                         } else {
                             let locationData = self.extractLocationInfo(from: results)
                             self.neighborhoodInfo = locationData.neighborhood
@@ -150,7 +150,7 @@ struct ContentView: View {
             } catch {
                 DispatchQueue.main.async {
                     self.neighborhoodInfo = "Error parsing response."
-                    //print("Error parsing response: \(error.localizedDescription)")
+                    print("Error parsing response: \(error.localizedDescription)")
                 }
             }
         }.resume()
@@ -158,43 +158,59 @@ struct ContentView: View {
     
     private func extractLocationInfo(from results: [[String: Any]]) -> (city: String, neighborhood: String) {
         var city: String = "Unknown City"
-        var neighborhood: String = "Unknown Neighborhood"
-        var fallbackCity: String = "Unknown City"
+        var neighborhood: String = "an unknown neighborhood"
+        
+        // Track the number of times we find a neighborhood and a city
+        var neighborhoodCount = 0
+        var neighborhoodFound: String? = nil
+        var cityCount = 0
+        var cityFound: String? = nil
         
         for result in results {
             if let addressComponents = result["address_components"] as? [[String: Any]] {
                 for component in addressComponents {
                     if let types = component["types"] as? [String], let longName = component["long_name"] as? String {
-                        //print("Component: \(component), Types: \(types), Long Name: \(longName)")
+                        print("Component: \(component), Types: \(types), Long Name: \(longName)")
                         
-                        if types.contains("sublocality") || types.contains("sublocality_level_1") {
-                            city = longName
-                            //print("Identified Sublocality (Preferred City): \(city)")
+                        if types.contains("neighborhood") {
+                            neighborhoodCount += 1
+                            print("Identified Neighborhood: \(longName) - Count: \(neighborhoodCount)")
+                            if neighborhoodFound == nil {
+                                neighborhoodFound = longName
+                            }
+                        } else if types.contains("sublocality") || types.contains("sublocality_level_1") {
+                            cityCount += 1
+                            print("Identified Sublocality: \(longName) - Count: \(cityCount)")
+                            if cityFound == nil {
+                                cityFound = longName
+                            }
                         } else if types.contains("locality") {
-                            if fallbackCity == "Unknown City" {
-                                fallbackCity = longName
-                                //print("Identified Locality (Fallback City): \(fallbackCity)")
+                            cityCount += 1
+                            print("Identified Locality (City): \(longName) - Count: \(cityCount)")
+                            if cityFound == nil {
+                                cityFound = longName
                             }
-                            if city == "Unknown City" {
-                                city = longName
-                                //print("Identified Locality (City): \(city)")
-                            }
-                        } else if types.contains("neighborhood") {
-                            neighborhood = longName
-                            //print("Identified Neighborhood: \(neighborhood)")
                         } else if types.contains("administrative_area_level_1") {
-                            //print("Identified State: \(longName)")
+                            print("Identified State: \(longName)")
                         }
                     }
                 }
             }
         }
-
-        if neighborhood == "Unknown Neighborhood" {
-            neighborhood = fallbackCity
+        
+        // Set neighborhood to the first identified neighborhood if it exists
+        if let identifiedNeighborhood = neighborhoodFound {
+            neighborhood = identifiedNeighborhood
         }
         
-        return (city == "Unknown City" ? fallbackCity : city, neighborhood)
+        // Set city to the most identified city-level component if it exists
+        if let identifiedCity = cityFound {
+            city = identifiedCity
+        }
+        
+        print("Final Identified Neighborhood: \(neighborhood), City: \(city)")
+        
+        return (city == "Unknown City" ? "New York" : city, neighborhood)
     }
     
     private func updateLastKnownLocation() {
